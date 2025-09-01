@@ -70,12 +70,26 @@
     background:linear-gradient(135deg,var(--accent),#5e7fe8); color:#fff;
   }
   button:active{ transform:translateY(1px) }
+  html, body {
+  height: 100%;
+  overflow: hidden;             /* אין גלילה כלל */
+  overscroll-behavior-y: none;  /* לא להעביר "משיכת-רענון" לשורש */
+  overscroll-behavior: none;
+  touch-action: none;           /* לחסל מחוות גלילה/זום */
+}
+#screenStart, #screenGame {
+  height: 100vh;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
 </style>
 </head>
 <body>
+  <div id="lock">
+    <!-- כל הקוד הקיים שלך: screenStart, screenGame, audio וכו' -->
+  
 
-  html, body { overscroll-behavior: none; }
-<!-- מסך פתיחה -->
+  
 <section id="screenStart">
   <div class="startCard">
     <div class="row">
@@ -158,6 +172,45 @@
       screen.orientation.lock('portrait').catch(()=>{});
     }
   }
+  
+  // נועל את כל מחוות הגלילה/משיכה גם במקרה שהדפדפן מתעקש
+(function hardLockScroll(){
+  const lock = document.getElementById('lock') || document.body;
+
+  // נבטל זום־אצבעות/מחוות אחרות
+  document.addEventListener('gesturestart', (e)=>{ e.preventDefault(); }, {passive:false});
+
+  // נגד Pull-to-Refresh: אם בראש הדף ומושכים למטה, נבטל
+  let startY = 0;
+  document.addEventListener('touchstart', (e)=>{
+    if (e.touches && e.touches.length) startY = e.touches[0].clientY;
+  }, {passive:false});
+
+  function blockTouchMove(e){
+    if (!e.touches || !e.touches.length) { e.preventDefault(); return; }
+    const y = e.touches[0].clientY;
+    const pullingDown = (y - startY) > 0;
+    const atTop = (document.scrollingElement ? document.scrollingElement.scrollTop : window.scrollY) <= 0;
+
+    // בכל מקרה נחסום גלילה; במיוחד נחסום משיכה למטה מראש העמוד
+    if (pullingDown && atTop) {
+      e.preventDefault();
+    } else {
+      e.preventDefault();
+    }
+  }
+
+  // מאזינים בכמה רמות (יש דפדפנים שמדלגים על אחת מהן)
+  window.addEventListener('touchmove',  blockTouchMove, {passive:false, capture:true});
+  document.addEventListener('touchmove',blockTouchMove, {passive:false, capture:true});
+  lock.addEventListener('touchmove',    blockTouchMove, {passive:false, capture:true});
+
+  // נבטל גם גלגלת (למקרה של מחשב)
+  window.addEventListener('wheel', (e)=>{ e.preventDefault(); }, {passive:false});
+
+  // בנוסף—נחזיר כל גלילה ל־0 אם קרתה
+  window.addEventListener('scroll', ()=>{ window.scrollTo(0,0); }, {passive:true});
+})();
   async function goFullscreen(){
     const el = document.documentElement;
     try{
@@ -470,5 +523,6 @@
   canvas.addEventListener('mousemove', onMouse);
 })();
   </script>
+</div>
 </body>
 </html>
