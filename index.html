@@ -70,13 +70,12 @@
     background:linear-gradient(135deg,var(--accent),#5e7fe8); color:#fff;
   }
   button:active{ transform:translateY(1px) }
-  html, body { overscroll-behavior: none; }
-<!-- מסך פתיחה -->
 </style>
 </head>
 <body>
 
-  
+  html, body { overscroll-behavior: none; }
+<!-- מסך פתיחה -->
 <section id="screenStart">
   <div class="startCard">
     <div class="row">
@@ -119,7 +118,7 @@
 
 <script>
 (function(){
-  // DOM
+  // ===== DOM =====
   const startScreen = document.getElementById('screenStart');
   const btnStart    = document.getElementById('btnStart');
   const roundsSel   = document.getElementById('roundsSel');
@@ -138,98 +137,127 @@
   const sndLose = document.getElementById('sndLose');
   const sndWin  = document.getElementById('sndWin');
 
-  // מצב
+  // ===== מצב =====
   let running=false, rafId=null;
   let totalRounds=5, playedRounds=0;
   let scoreTop=0, scoreBot=0;
   let servingTo='top';
-  let minSpeed = 0, maxSpeed = 0, accelPerSec = 0;
-let lastTime = 0;
 
-  const ball = { x:0, y:0, r:10, vx:0, vy:0, speed:0 };
+  // מהירות/האצה
+  let minSpeed = 0, maxSpeed = 0, accelPerSec = 0;
+  let lastTime = 0; // ms
+
+  const ball = { x:0, y:0, r:10, vx:0, vy:0, speed:0 }; // vx,vy בפיקסלים/שניה
   const padTop = { x:0, y:0, w:0, h:0 };
   const padBot = { x:0, y:0, w:0, h:0 };
   const T = { stemW:0, stemH:0, barW:0, barH:0, circleR:0 };
 
-  // עוזר
+  // ===== עזרים =====
   function lockOrientation(){
     if (screen.orientation && screen.orientation.lock) {
       screen.orientation.lock('portrait').catch(()=>{});
     }
   }
-  function setCanvasSize(){
-  const cssW = window.innerWidth;
-  const cssH = window.innerHeight;
-  const dpr  = Math.max(1, window.devicePixelRatio || 1);
+  async function goFullscreen(){
+    const el = document.documentElement;
+    try{
+      if (el.requestFullscreen) {
+        await el.requestFullscreen({ navigationUI: 'hide' });
+      } else if (el.webkitRequestFullscreen) {
+        el.webkitRequestFullscreen();
+      }
+    }catch(e){}
+  }
 
-  canvas.style.width  = cssW + 'px';
-  canvas.style.height = cssH + 'px';
-  canvas.width  = Math.round(cssW * dpr);
-  canvas.height = Math.round(cssH * dpr);
-  ctx.setTransform(dpr,0,0,dpr,0,0);
+  // מניעת Pull-to-Refresh/גלילה
+  let __startY = 0;
+  document.addEventListener('touchstart', (e)=>{
+    if (e.touches && e.touches.length) __startY = e.touches[0].clientY;
+  }, {passive:false});
+  document.addEventListener('touchmove', (e)=>{
+    if (!e.touches || !e.touches.length) return;
+    const y = e.touches[0].clientY;
+    const pullingDown = (y - __startY) > 0;
+    const atTop = (document.scrollingElement ? document.scrollingElement.scrollTop : window.scrollY) <= 0;
+    if (pullingDown && atTop) e.preventDefault();
+  }, {passive:false});
 
-  // פרופורציות מחבט
-  const pw = Math.max(80, Math.round(cssW*0.28));
-  const ph = Math.max(22, Math.round(cssH*0.04));
-  padTop.w = pw; padTop.h = ph;
-  padBot.w = pw; padBot.h = ph;
-  padTop.x = cssW/2; 
-  padBot.x = cssW/2;
+  // חסימת F5 / Ctrl+R
+  window.addEventListener("keydown", function(e){
+    if (e.key === "F5" || (e.ctrlKey && e.key.toLowerCase() === "r")) {
+      e.preventDefault();
+    }
+  });
 
-  // חלקי ה-T
-  T.stemW   = Math.max(10, Math.round(pw*0.18));
-  T.stemH   = Math.max(14, Math.round(ph*1.6));
-  T.barW    = Math.max(36, Math.round(pw*0.7));
-  T.barH    = Math.max(10, Math.round(ph*0.7));
-  T.circleR = Math.max(8,  Math.round(ph*0.8));
-
-  // *** חשוב: מרחק "בטוח" מהקצה לפי גובה ה-T המלא + שוליים ***
-  const fullTHeight = T.barH + T.stemH + T.circleR*2; // גובה ה-T כולל העיגול
-  const margin      = Math.max(18, Math.round(cssH*0.02)); // שוליים קטנים
-
-  // המחבט העליון צריך להיות לגמרי גלוי מעל – לכן ה-y שלו = גובה ה-T + שוליים
-  padTop.y = (fullTHeight/2) + margin;
-
-  // המחבט התחתון צריך להיות לגמרי גלוי מתחת – לכן מרחק מהתחתית
-  padBot.y = cssH - (fullTHeight/2) - margin;
-}
-  function resetBall(){
-  const cw = canvas.clientWidth, ch = canvas.clientHeight;
-  ball.x = cw/2; 
-  ball.y = ch/2;
-
-  // מהירות בסיסית איטית (מתואמת רוחב), מקסימום מהיר מאוד
-  const base = Math.max(2.4, cw * 0.0042);
-  minSpeed   = base;
-  maxSpeed   = base * 4.5;        // כמה מהר מאוד להגיע (אפשר לשנות יחסית)
-  accelPerSec= (maxSpeed - minSpeed) / 10; // זמן עד מקסימום ~10 שניות
-  ball.speed = minSpeed;
-
-  const dirY  = (servingTo==='top') ? -1 : 1;
-  const angle = (Math.random()*0.5 - 0.25); // סטייה קלה לשמאל/ימין
-  const vx = Math.sin(angle) * ball.speed;
-  const vy = Math.sqrt(Math.max(0.0001, ball.speed*ball.speed - vx*vx)) * dirY;
-  ball.vx = vx; 
-  ball.vy = vy;
-
-  lastTime = performance.now(); // איפוס מד זמן לפריים הבא
-}
   function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
 
-  // ציור מחבט T הפוך (עיגול “מהצד החיצוני”)
+  function setCanvasSize(){
+    const cssW = window.innerWidth;
+    const cssH = window.innerHeight;
+    const dpr  = Math.max(1, window.devicePixelRatio || 1);
+
+    canvas.style.width  = cssW + 'px';
+    canvas.style.height = cssH + 'px';
+    canvas.width  = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+
+    // פרופורציות מחבט
+    const pw = Math.max(80, Math.round(cssW*0.28));
+    const ph = Math.max(22, Math.round(cssH*0.04));
+    padTop.w = pw; padTop.h = ph;
+    padBot.w = pw; padBot.h = ph;
+    padTop.x = cssW/2;
+    padBot.x = cssW/2;
+
+    // חלקי ה-T
+    T.stemW   = Math.max(10, Math.round(pw*0.18));
+    T.stemH   = Math.max(14, Math.round(ph*1.6));
+    T.barW    = Math.max(36, Math.round(pw*0.7));
+    T.barH    = Math.max(10, Math.round(ph*0.7));
+    T.circleR = Math.max(8,  Math.round(ph*0.8));
+
+    // מרחק בטוח מהקצה כדי שכל ה-T ייראה
+    const fullTHeight = T.barH + T.stemH + T.circleR*2;
+    const margin      = Math.max(18, Math.round(cssH*0.02));
+    padTop.y = (fullTHeight/2) + margin;
+    padBot.y = cssH - (fullTHeight/2) - margin;
+  }
+
+  function resetBall(){
+    const cw = canvas.clientWidth, ch = canvas.clientHeight;
+    ball.x = cw/2;
+    ball.y = ch/2;
+
+    // מהירות התחלתית איטית + מקסימום גבוה + תאוצה הדרגתית
+    const base = Math.max(160, cw * 0.42); // פיקסלים לשניה (לא פר פריים)
+    minSpeed   = base;
+    maxSpeed   = base * 4.5;
+    accelPerSec= (maxSpeed - minSpeed) / 10; // להגיע למקסימום ~10 שניות
+    ball.speed = minSpeed;
+
+    const dirY  = (servingTo==='top') ? -1 : 1;
+    const angle = (Math.random()*0.5 - 0.25); // הטייה קלה
+    const vx = Math.sin(angle) * ball.speed;
+    const vy = Math.sqrt(Math.max(0.0001, ball.speed*ball.speed - vx*vx)) * dirY;
+    ball.vx = vx; // px/s
+    ball.vy = vy; // px/s
+
+    lastTime = performance.now();
+  }
+
+  // ציור מחבט T הפוך (עיגול לצד החיצוני)
   function drawPaddle(pad, isTop){
     const x = pad.x, y = pad.y;
     ctx.save(); ctx.translate(0.5,0.5); ctx.fillStyle = '#6ea8fe';
     // קו אופקי
     ctx.fillRect(x - T.barW/2, y - T.barH/2, T.barW, T.barH);
     if (isTop){
-      // העליון – גזע ועיגול עולים למעלה
       const stemX = x - T.stemW/2;
       const stemY = y - T.barH/2 - T.stemH;
       ctx.fillRect(stemX, stemY, T.stemW, T.stemH);
       ctx.beginPath(); ctx.arc(x, stemY - T.circleR, T.circleR, 0, Math.PI*2); ctx.fill();
     } else {
-      // התחתון – גזע ועיגול יורדים למטה
       const stemX = x - T.stemW/2;
       const stemY = y + T.barH/2;
       ctx.fillRect(stemX, stemY, T.stemW, T.stemH);
@@ -237,102 +265,103 @@ let lastTime = 0;
     }
     ctx.restore();
   }
+
   function drawBall(){
     ctx.save();
     ctx.fillStyle = '#70e1a1';
     ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI*2); ctx.fill();
     ctx.restore();
   }
+
   function clear(){
     ctx.clearRect(0,0,canvas.clientWidth,canvas.clientHeight);
   }
 
-  // לוגיקה
-  function loop(){
-  if (!running) return;
-  const now = performance.now();
-  const dt  = Math.max(0, (now - lastTime) / 1000); // שניות
-  lastTime  = now;
+  function update(dt){
+    const cw = canvas.clientWidth, ch = canvas.clientHeight;
 
-  update(dt);
-  render();
-  rafId = requestAnimationFrame(loop);
-}
+    // האצה הדרגתית
+    ball.speed = Math.min(ball.speed + accelPerSec * dt, maxSpeed);
 
-function update(dt){
-  const cw = canvas.clientWidth, ch = canvas.clientHeight;
+    // תנועה (px/s * s)
+    ball.x += ball.vx * dt;
+    ball.y += ball.vy * dt;
 
-  // האצה הדרגתית עד מקסימום
-  ball.speed = Math.min(ball.speed + accelPerSec * dt, maxSpeed);
+    // נורמליזציה למהירות החדשה
+    const mag = Math.hypot(ball.vx, ball.vy);
+    if (mag > 0){
+      const f = ball.speed / mag;
+      ball.vx *= f;
+      ball.vy *= f;
+    }
 
-  // תנועה
-  ball.x += ball.vx;
-  ball.y += ball.vy;
+    // קירות שמאל/ימין
+    if (ball.x - ball.r <= 0 && ball.vx < 0){ ball.x = ball.r; ball.vx *= -1; }
+    if (ball.x + ball.r >= cw && ball.vx > 0){ ball.x = cw - ball.r; ball.vx *= -1; }
 
-  // נורמליזציה למהירות החדשה
-  const mag = Math.hypot(ball.vx, ball.vy);
-  if (mag !== 0){
-    const f = ball.speed / mag;
-    ball.vx *= f; 
-    ball.vy *= f;
+    // התנגשות עם המחבט העליון (הגוף כלפי מעלה)
+    const topRect = {
+      x: padTop.x - T.barW/2,
+      y: padTop.y - (T.barH/2 + T.stemH + T.circleR*2),
+      w: T.barW,
+      h: T.barH + T.stemH + T.circleR*2
+    };
+    if (ball.vy < 0 &&
+        ball.y - ball.r <= topRect.y + topRect.h &&
+        ball.y > topRect.y &&
+        ball.x >= topRect.x && ball.x <= topRect.x + topRect.w){
+      ball.y = topRect.y + topRect.h + ball.r;
+      const hit = ((ball.x - padTop.x) / (T.barW/2)); // -1..1
+      const ang = hit * 0.6;
+      const vx  = Math.sin(ang) * ball.speed;
+      const vy  = Math.sqrt(Math.max(0.0001, ball.speed*ball.speed - vx*vx));
+      ball.vx = vx; ball.vy = +vy; // קופץ למטה
+    }
+
+    // התנגשות עם המחבט התחתון (הגוף כלפי מטה)
+    const botRect = {
+      x: padBot.x - T.barW/2,
+      y: padBot.y - T.barH/2,
+      w: T.barW,
+      h: T.barH + T.stemH + T.circleR*2
+    };
+    if (ball.vy > 0 &&
+        ball.y + ball.r >= botRect.y &&
+        ball.y < botRect.y + botRect.h &&
+        ball.x >= botRect.x && ball.x <= botRect.x + botRect.w){
+      ball.y = botRect.y - ball.r;
+      const hit = ((ball.x - padBot.x) / (T.barW/2));
+      const ang = hit * 0.6;
+      const vx  = Math.sin(ang) * ball.speed;
+      const vy  = Math.sqrt(Math.max(0.0001, ball.speed*ball.speed - vx*vx));
+      ball.vx = vx; ball.vy = -vy; // קופץ למעלה
+    }
+
+    // יציאה למעלה/למטה => הפסד
+    if (ball.y + ball.r < 0){
+      pointTo('bot'); // עליון הפסיד, תחתון מקבל נקודה
+    } else if (ball.y - ball.r > ch){
+      pointTo('top'); // תחתון הפסיד, עליון מקבל נקודה
+    }
   }
 
-  // קירות צד
-  if (ball.x - ball.r <= 0 && ball.vx < 0){ ball.x = ball.r; ball.vx *= -1; }
-  if (ball.x + ball.r >= cw && ball.vx > 0){ ball.x = cw - ball.r; ball.vx *= -1; }
-
-  // *** התנגשות עם מחבט עליון (כפי שכבר אצלך – הפוך) ***
-  const topRect = {
-    x: padTop.x - T.barW/2,
-    y: padTop.y - (T.barH/2 + T.stemH + T.circleR*2),
-    w: T.barW,
-    h: T.barH + T.stemH + T.circleR*2
-  };
-  if (ball.vy < 0 &&
-      ball.y - ball.r <= topRect.y + topRect.h &&
-      ball.y > topRect.y &&
-      ball.x >= topRect.x && ball.x <= topRect.x + topRect.w){
-    ball.y = topRect.y + topRect.h + ball.r;
-    const hit = ((ball.x - padTop.x) / (T.barW/2));
-    const ang = hit * 0.6;
-    const vx  = Math.sin(ang) * ball.speed;
-    const vy  = Math.sqrt(Math.max(0.0001, ball.speed*ball.speed - vx*vx));
-    ball.vx = vx; ball.vy = +vy; // למטה
-  }
-
-  // *** התנגשות עם מחבט תחתון (כפי שכבר אצלך – הפוך) ***
-  const botRect = {
-    x: padBot.x - T.barW/2,
-    y: padBot.y - T.barH/2,
-    w: T.barW,
-    h: T.barH + T.stemH + T.circleR*2
-  };
-  if (ball.vy > 0 &&
-      ball.y + ball.r >= botRect.y &&
-      ball.y < botRect.y + botRect.h &&
-      ball.x >= botRect.x && ball.x <= botRect.x + botRect.w){
-    ball.y = botRect.y - ball.r;
-    const hit = ((ball.x - padBot.x) / (T.barW/2));
-    const ang = hit * 0.6;
-    const vx  = Math.sin(ang) * ball.speed;
-    const vy  = Math.sqrt(Math.max(0.0001, ball.speed*ball.speed - vx*vx));
-    ball.vx = vx; ball.vy = -vy; // למעלה
-  }
-
-  // יציאה למעלה/למטה => הפסד
-  if (ball.y + ball.r < 0){
-    pointTo('bot'); // העליון הפסיד
-  } else if (ball.y - ball.r > ch){
-    pointTo('top'); // התחתון הפסיד
-  }
-}
   function render(){
     clear();
     drawPaddle(padTop, true);
     drawPaddle(padBot, false);
     drawBall();
   }
-  
+
+  function loop(){
+    if (!running) return;
+    const now = performance.now();
+    const dt  = Math.max(0, (now - lastTime) / 1000);
+    lastTime  = now;
+
+    update(dt);
+    render();
+    rafId = requestAnimationFrame(loop);
+  }
 
   function showLoseFx(loserSide){ // 'top' או 'bot'
     const el = (loserSide==='top') ? fxTop : fxBot;
@@ -347,15 +376,15 @@ function update(dt){
     playedRounds++;
     if (whoGetsPoint==='top') scoreTop++; else scoreBot++;
 
-    // הצג מפסידן (ההפך ממי שקיבל נקודה)
+    // הצג "מפסידן" בצד שנכשל
     showLoseFx(whoGetsPoint==='top' ? 'bot' : 'top');
     try{ sndLose.currentTime=0; sndLose.play().catch(()=>{});}catch(e){}
 
-    // הסתיים סט?
+    // סוף סט?
     const over = (playedRounds >= totalRounds);
     if (over){
-      // שוויון – הארכת משחקון
       if (scoreTop === scoreBot){
+        // הארכה
         totalRounds++;
         servingTo = (Math.random()<0.5) ? 'top' : 'bot';
         setTimeout(startRally, 2500);
@@ -364,7 +393,8 @@ function update(dt){
       }
       return;
     }
-    // סרב הבא – נשלח לכיוון המפסיד כדי לא ליפול פעמיים רצוף
+
+    // הסרב הבא ישוגר לכיוון המפסיד
     servingTo = (whoGetsPoint==='top') ? 'bot' : 'top';
     setTimeout(startRally, 2500);
   }
@@ -381,18 +411,20 @@ function update(dt){
     scoreTop=0; scoreBot=0; playedRounds=0;
     totalRounds = parseInt(roundsSel.value, 10) || 5;
 
+    winnerLayer.style.display = 'none';
     setCanvasSize();
     resetBall();
     running = true;
     loop();
   }
+
   function startRally(){
     resetBall();
     running = true;
     loop();
   }
 
-  // שליטה – נגיעה/החלקה להזזת מחבטים
+  // ===== שליטה – נגיעה/החלקה להזזת מחבטים =====
   function pointerX(clientX){
     const rect = canvas.getBoundingClientRect();
     return clamp(clientX - rect.left, 0, rect.width);
@@ -416,15 +448,15 @@ function update(dt){
     else { padBot.x = clamp(cx, T.barW/2, rect.width - T.barW/2); }
   }
 
-  // אירועים
-  btnStart.addEventListener('click', ()=>{
+  // ===== אירועים =====
+  btnStart.addEventListener('click', async ()=>{
     lockOrientation();
+    await goFullscreen();
     startScreen.style.display='none';
     gameScreen.style.display='block';
     startMatch();
   });
 
-  // הקלקה בכל מקום אחרי ניצחון – חזרה למסך פתיחה
   winnerLayer.addEventListener('click', ()=>{
     winnerLayer.style.display='none';
     gameScreen.style.display='none';
@@ -437,26 +469,6 @@ function update(dt){
   canvas.addEventListener('mousedown', onMouse);
   canvas.addEventListener('mousemove', onMouse);
 })();
-  
-  async function goFullscreen() {
-  const el = document.documentElement;
-  try {
-    // נסיון להסתיר UI ניווט של הדפדפן (תלוי דפדפן)
-    if (el.requestFullscreen) {
-      await el.requestFullscreen({ navigationUI: 'hide' });
-    } else if (el.webkitRequestFullscreen) {
-      el.webkitRequestFullscreen();
-    }
-  } catch(e){}
-}
-
-btnStart.addEventListener('click', async ()=>{
-  lockOrientation();
-  await goFullscreen(); // <-- הוסף שורה זו
-  startScreen.style.display='none';
-  gameScreen.style.display='block';
-  startMatch();
-});
-</script>
+  </script>
 </body>
 </html>
