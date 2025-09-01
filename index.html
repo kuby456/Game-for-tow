@@ -74,6 +74,7 @@
 </head>
 <body>
 
+  html, body { overscroll-behavior: none; }
 <!-- מסך פתיחה -->
 <section id="screenStart">
   <div class="startCard">
@@ -435,6 +436,26 @@ function update(dt){
   canvas.addEventListener('mousedown', onMouse);
   canvas.addEventListener('mousemove', onMouse);
 })();
+  
+  async function goFullscreen() {
+  const el = document.documentElement;
+  try {
+    // נסיון להסתיר UI ניווט של הדפדפן (תלוי דפדפן)
+    if (el.requestFullscreen) {
+      await el.requestFullscreen({ navigationUI: 'hide' });
+    } else if (el.webkitRequestFullscreen) {
+      el.webkitRequestFullscreen();
+    }
+  } catch(e){}
+}
+
+btnStart.addEventListener('click', async ()=>{
+  lockOrientation();
+  await goFullscreen(); // <-- הוסף שורה זו
+  startScreen.style.display='none';
+  gameScreen.style.display='block';
+  startMatch();
+});
 </script>
 </body>
 </html>
